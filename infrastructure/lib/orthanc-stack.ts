@@ -95,7 +95,7 @@ export class OrthancStack extends Stack {
     };
 
     let container = {
-      image: ContainerImage.fromRegistry("orthancteam/orthanc:24.8.3-full"),
+      image: ContainerImage.fromRegistry("orthancteam/orthanc:26.1.0-full"),
       logging,
       taskDefinition: taskDef,
       environment: {
