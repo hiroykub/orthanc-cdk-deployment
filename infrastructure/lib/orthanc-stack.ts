@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: MIT-0
 
-import { Aws, CfnOutput, Duration, Stack, StackProps, Token } from "aws-cdk-lib";
+import { Aws, CfnOutput, Duration, Stack, StackProps } from "aws-cdk-lib";
 import {
   AllowedMethods,
   CachePolicy,
@@ -34,7 +34,7 @@ import {
 import { ApplicationLoadBalancedFargateService } from "aws-cdk-lib/aws-ecs-patterns";
 import { AccessPoint, FileSystem } from "aws-cdk-lib/aws-efs";
 import { ApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2";
-import { DatabaseInstance } from "aws-cdk-lib/aws-rds";
+import { DatabaseCluster } from "aws-cdk-lib/aws-rds";
 import { Bucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
@@ -84,8 +84,8 @@ export class OrthancStack extends Stack {
       PostgreSQL: {
         EnableIndex: true,
         EnableStorage: false,
-        Port: Token.asNumber(props.rdsInstance.dbInstanceEndpointPort),
-        Host: props.rdsInstance.dbInstanceEndpointAddress,
+        Port: 5432,
+        Host: props.dbEndpointAddress,
         Database: "postgres",
         Username: "postgres",
         Password: Secret.fromSecretsManager(props.secret),
@@ -288,7 +288,8 @@ interface OrthancStackProps extends StackProps {
   vpc: IVpc;
   orthancBucket?: Bucket;
   orthancFileSystem?: FileSystem;
-  rdsInstance: DatabaseInstance;
+  rdsInstance: DatabaseCluster;
+  dbEndpointAddress: string;
   secret: secretsmanager.Secret;
   ecsSecurityGroup: SecurityGroup;
   loadBalancerSecurityGroup: SecurityGroup;

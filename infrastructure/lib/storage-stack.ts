@@ -4,7 +4,14 @@ import { Duration, PhysicalName, RemovalPolicy, Stack, StackProps } from "aws-cd
 import { InstanceClass, InstanceSize, InstanceType, SecurityGroup, SubnetType, Vpc } from "aws-cdk-lib/aws-ec2";
 import { AccessPoint, FileSystem, LifecyclePolicy, PerformanceMode, ThroughputMode } from "aws-cdk-lib/aws-efs";
 import { Key } from "aws-cdk-lib/aws-kms";
-import { Credentials, DatabaseInstance, DatabaseInstanceEngine, PostgresEngineVersion, StorageType } from "aws-cdk-lib/aws-rds";
+import {
+  AuroraPostgresEngineVersion,
+  ClusterInstance,
+  Credentials,
+  DatabaseCluster,
+  DatabaseClusterEngine,
+  ServerlessV2ClusterInstanceProps,
+} from "aws-cdk-lib/aws-rds";
 import { BlockPublicAccess, Bucket, BucketEncryption, StorageClass } from "aws-cdk-lib/aws-s3";
 import { Secret } from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
@@ -13,7 +20,9 @@ export class StorageStack extends Stack {
 
   readonly rdsSecret: Secret;
   readonly fileSystem?: FileSystem;
-  readonly rdsInstance: DatabaseInstance;
+  readonly dbCluster: DatabaseCluster;
+  readonly dbEndpointAddress: string;
+  readonly dbEndpointPort: string;
   readonly orthancBucket?: Bucket;
   readonly efsAccessPoint?: AccessPoint;
 
@@ -70,8 +79,8 @@ export class StorageStack extends Stack {
         this.fileSystem = new FileSystem(this, 'OrthancFileSystem', {
           vpc: props.vpc,
           securityGroup: props.efsSecurityGroup,
-          lifecyclePolicy: LifecyclePolicy.AFTER_14_DAYS, // files are not transitioned to infrequent access (IA) storage by default
-          performanceMode: PerformanceMode.GENERAL_PURPOSE, // default
+          lifecyclePolicy: LifecyclePolicy.AFTER_14_DAYS,
+          performanceMode: PerformanceMode.GENERAL_PURPOSE,
           throughputMode: ThroughputMode.BURSTING,
           encrypted: true,
           removalPolicy: RemovalPolicy.DESTROY,
@@ -91,33 +100,41 @@ export class StorageStack extends Stack {
             path: "/orthanc" 
         });
       }
+
       // ********************************
-      // RDS Instance configuration
+      // Aurora Serverless v2 configuration
       // ********************************   
       const rdsKmsKey = new Key(this, 'OrthancRDSKey', {
         enableKeyRotation: true
       });
       
-      this.rdsInstance = new DatabaseInstance(this, 'orthanc-instance', {
-        engine: DatabaseInstanceEngine.postgres({
-            version: PostgresEngineVersion.VER_15
+      this.dbCluster = new DatabaseCluster(this, 'orthanc-aurora-cluster', {
+        engine: DatabaseClusterEngine.auroraPostgres({
+          version: AuroraPostgresEngineVersion.VER_16_6,
         }),
-        multiAz: props.enable_multi_az,
-        deletionProtection: false,
-        databaseName: "OrthancDB",
-        storageType: StorageType.GP2,
+        serverlessV2MinCapacity: 0.5,
+        serverlessV2MaxCapacity: 4,
+        writer: ClusterInstance.serverlessV2('writer', {
+          publiclyAccessible: false,
+        }),
+        defaultDatabaseName: "OrthancDB",
         storageEncrypted: true,
         storageEncryptionKey: rdsKmsKey,
-        allocatedStorage: 20,
-        backupRetention: props.enable_rds_backup ? Duration.days(30) : Duration.days(0),
-        instanceType: InstanceType.of(InstanceClass.BURSTABLE3, InstanceSize.MEDIUM),
-        credentials: Credentials.fromPassword("postgres", this.rdsSecret.secretValue ),
+        deletionProtection: false,
+        backup: {
+          retention: props.enable_rds_backup ? Duration.days(30) : Duration.days(1),
+        },
+        credentials: Credentials.fromPassword("postgres", this.rdsSecret.secretValue),
         vpc: props.vpc,
         vpcSubnets: {
-          subnetType: SubnetType.PRIVATE_WITH_EGRESS
+          subnetType: SubnetType.PRIVATE_WITH_EGRESS,
         },
-        securityGroups: [props.dbClusterSecurityGroup]
+        securityGroups: [props.dbClusterSecurityGroup],
+        removalPolicy: RemovalPolicy.DESTROY,
       });
+
+      this.dbEndpointAddress = this.dbCluster.clusterEndpoint.hostname;
+      this.dbEndpointPort = this.dbCluster.clusterEndpoint.port.toString();
   };
 }
 
